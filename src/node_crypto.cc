@@ -2876,7 +2876,15 @@ void CipherBase::Init(const char* cipher_type,
   unsigned char iv[EVP_MAX_IV_LENGTH];
 
   int key_len = EVP_BytesToKey(cipher_,
+#ifdef OPENSSL_FIPS
+/* Warning! Using SHA1 means that crypto.createCipher() will behave differently,
+ * in particular it will not comform to either PKCS #5 1.5 or PKCS #5 2.0.
+ * (See docs: https://www.openssl.org/docs/manmaster/crypto/EVP_BytesToKey.html)
+ */
+                               EVP_sha1(),
+#else
                                EVP_md5(),
+#endif // OPENSSL_FIPS
                                nullptr,
                                reinterpret_cast<const unsigned char*>(key_buf),
                                key_buf_len,
@@ -3233,10 +3241,14 @@ void Hmac::HmacInit(const char* hash_type, const char* key, int key_len) {
     return env()->ThrowError("Unknown message digest");
   }
   HMAC_CTX_init(&ctx_);
+  int result = 0;
   if (key_len == 0) {
-    HMAC_Init(&ctx_, "", 0, md_);
+    result = HMAC_Init(&ctx_, "", 0, md_);
   } else {
-    HMAC_Init(&ctx_, key, key_len, md_);
+    result = HMAC_Init(&ctx_, key, key_len, md_);
+  }
+  if (!result) {
+    return ThrowCryptoError(env(), ERR_get_error());
   }
   initialised_ = true;
 }
@@ -4050,7 +4062,8 @@ void DiffieHellman::Initialize(Environment* env, Local<Object> target) {
 
 bool DiffieHellman::Init(int primeLength, int g) {
   dh = DH_new();
-  DH_generate_parameters_ex(dh, primeLength, g, 0);
+  if (!DH_generate_parameters_ex(dh, primeLength, g, 0))
+    return false;
   bool result = VerifyContext();
   if (!result)
     return false;
@@ -4143,7 +4156,7 @@ void DiffieHellman::New(const FunctionCallbackInfo<Value>& args) {
   }
 
   if (!initialized) {
-    return env->ThrowError("Initialization failed");
+    return ThrowCryptoError(env, ERR_get_error(), "Initialization failed");
   }
 }
 
