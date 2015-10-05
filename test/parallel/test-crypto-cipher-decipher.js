@@ -131,7 +131,11 @@ testCipher4(new Buffer('0123456789abcd0123456789'), new Buffer('12345678'));
 (function() {
   var c = crypto.createCipher('aes-256-cbc', 'secret');
   var s = c.update('test', 'utf8', 'base64') + c.final('base64');
-  assert.equal(s, '375oxUQCIocvxmC5At+rvA==');
+  if (common.hasFipsCrypto) {
+    assert.equal(s, '5NtsZnnQ4IpT0Hcf9rxC1Q=='); // SHA1
+  } else {
+    assert.equal(s, '375oxUQCIocvxmC5At+rvA=='); // MD5
+  }
 })();
 
 // Calling Cipher.final() or Decipher.final() twice should error but
