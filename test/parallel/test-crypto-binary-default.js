@@ -417,7 +417,7 @@ assert.strictEqual(verified, true, 'sign and verify (buffer)');
 function testCipher1(key) {
   // Test encryption and decryption
   var plaintext = 'Keep this a secret? No! Tell everyone about node.js!';
-  var cipher = crypto.createCipher('aes192', key);
+  // var cipher = crypto.createCipher('aes192', key);
 
   // encrypt plaintext which is in utf8 format
   // to a ciphertext which will be in hex
@@ -440,7 +440,7 @@ function testCipher2(key) {
       '32|RmVZZkFUVmpRRkp0TmJaUm56ZU9qcnJkaXNNWVNpTTU*|iXmckfRWZBGWWELw' +
       'eCBsThSsfUHLeRe0KCsK8ooHgxie0zOINpXxfZi/oNG7uq9JWFVCk70gfzQH8ZUJ' +
       'jAfaFg**';
-  var cipher = crypto.createCipher('aes256', key);
+  // var cipher = crypto.createCipher('aes256', key);
 
   // encrypt plaintext which is in utf8 format
   // to a ciphertext which will be in Base64
