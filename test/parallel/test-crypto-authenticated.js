@@ -43,11 +43,21 @@ var TEST_CASES = [
     ct: '58E62CFF7B1D274011A82267EBB93866E72B6C2B',
     tag: '9BB44F663BADABACAE9720881FB1EC7A', tampered: true },
   { algo: 'aes-192-gcm',
-    key: '1ed2233fa2223ef5d7df08546049406c7305220bca40d4c9',
-    iv: '0e1791e9db3bd21a9122c416', plain: 'Hello node.js world!',
+    key: (common.hasFipsCrypto? 
+        '1ebb8fb212c86dc8c81ea17a38930f39d3101125394d7dd8' : // SHA1
+        '1ed2233fa2223ef5d7df08546049406c7305220bca40d4c9'), // MD5
+    iv: (common.hasFipsCrypto? 
+        'af8013ea5e480b3c4c6fcf99' : // SHA1
+        '0e1791e9db3bd21a9122c416'), // MD5
+    plain: 'Hello node.js world!',
     password: 'very bad password', aad: '63616c76696e',
-    ct: 'DDA53A4059AA17B88756984995F7BBA3C636CC44',
-    tag: 'D2A35E5C611E5E3D2258360241C5B045', tampered: false }
+    ct: (common.hasFipsCrypto? 
+        'B7EA59E33A9B2EBD8B133FC0FC45982B2658576B' : // SHA1
+        'DDA53A4059AA17B88756984995F7BBA3C636CC44'), // MD5
+    tag: (common.hasFipsCrypto? 
+        'C3EEA119FD5B9379F6D5F384E0FB0256' : // SHA1
+        'D2A35E5C611E5E3D2258360241C5B045'), // MD5 
+    tampered: false }
 ];
 
 var ciphers = crypto.getCiphers();
@@ -61,6 +71,7 @@ for (var i in TEST_CASES) {
   }
 
   (function() {
+	console.log("Test algo is : " + test.algo);
     var encrypt = crypto.createCipheriv(test.algo,
       new Buffer(test.key, 'hex'), new Buffer(test.iv, 'hex'));
     if (test.aad)

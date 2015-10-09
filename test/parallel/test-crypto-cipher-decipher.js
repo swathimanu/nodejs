@@ -128,11 +128,23 @@ testCipher4(new Buffer('0123456789abcd0123456789'), new Buffer('12345678'));
 
 
 // Base64 padding regression test, see #4837.
+<<<<<<< HEAD
 // (function() {
 //   var c = crypto.createCipher('aes-256-cbc', 'secret');
 //   var s = c.update('test', 'utf8', 'base64') + c.final('base64');
 //   assert.equal(s, '375oxUQCIocvxmC5At+rvA==');
 // })();
+=======
+(function() {
+  var c = crypto.createCipher('aes-256-cbc', 'secret');
+  var s = c.update('test', 'utf8', 'base64') + c.final('base64');
+  if (common.hasFipsCrypto) {
+    assert.equal(s, '5NtsZnnQ4IpT0Hcf9rxC1Q=='); // SHA1
+  } else {
+    assert.equal(s, '375oxUQCIocvxmC5At+rvA=='); // MD5
+  }
+})();
+>>>>>>> fb2f0758a5460970fb4a464167f793a45c4ebf6e
 
 // Calling Cipher.final() or Decipher.final() twice should error but
 // not assert. See #4886.

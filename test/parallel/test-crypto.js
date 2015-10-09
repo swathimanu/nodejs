@@ -122,7 +122,7 @@ assert.throws(function() {
     ''
   ].join('\n');
   crypto.createSign('RSA-SHA256').update('test').sign(priv);
-}, /RSA_sign:digest too big for rsa key/);
+}, /(RSA_sign1|RSA_verify_PKCS1_PSS_mgf1):digest too big for rsa key/);
 
 assert.throws(function() {
   // The correct header inside `test_bad_rsa_privkey.pem` should have been

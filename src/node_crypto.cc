@@ -2876,7 +2876,15 @@ void CipherBase::Init(const char* cipher_type,
   unsigned char iv[EVP_MAX_IV_LENGTH];
 
   int key_len = EVP_BytesToKey(cipher_,
+#ifdef OPENSSL_FIPS
+/* Warning! Using SHA1 means that crypto.createCipher() will behave differently,
+ * in particular it will not comform to either PKCS #5 1.5 or PKCS #5 2.0.
+ * (See docs: https://www.openssl.org/docs/manmaster/crypto/EVP_BytesToKey.html)
+ */
+                               EVP_sha1(),
+#else
                                EVP_md5(),
+#endif // OPENSSL_FIPS
                                nullptr,
                                reinterpret_cast<const unsigned char*>(key_buf),
                                key_buf_len,
@@ -3233,10 +3241,14 @@ void Hmac::HmacInit(const char* hash_type, const char* key, int key_len) {
     return env()->ThrowError("Unknown message digest");
   }
   HMAC_CTX_init(&ctx_);
+  int result = 0;
   if (key_len == 0) {
-    HMAC_Init(&ctx_, "", 0, md_);
+    result = HMAC_Init(&ctx_, "", 0, md_);
   } else {
-    HMAC_Init(&ctx_, key, key_len, md_);
+    result = HMAC_Init(&ctx_, key, key_len, md_);
+  }
+  if (!result) {
+    return ThrowCryptoError(env(), ERR_get_error());
   }
   initialised_ = true;
 }
@@ -3357,7 +3369,7 @@ void Hash::New(const FunctionCallbackInfo<Value>& args) {
 
   Hash* hash = new Hash(env, args.This());
   if (!hash->HashInit(*hash_type)) {
-    return env->ThrowError("Digest method not supported");
+    return ThrowCryptoError(env, ERR_get_error(), "Digest method not supported");
   }
 }
 
@@ -3369,6 +3381,9 @@ bool Hash::HashInit(const char* hash_type) {
     return false;
   EVP_MD_CTX_init(&mdctx_);
   EVP_DigestInit_ex(&mdctx_, md_, nullptr);
+  if (0 != ERR_peek_error()) {
+    return false;
+  }
   initialised_ = true;
   return true;
 }
@@ -3584,6 +3599,50 @@ SignBase::Error Sign::SignFinal(const char* key_pem,
   // cf. the test of `test_bad_rsa_privkey.pem` for an example.
   if (pkey == nullptr || 0 != ERR_peek_error())
     goto exit;
+
+#ifdef OPENSSL_FIPS
+  /* WARNING: In FIPS mode only the following combinations are acceptable:
+   *
+   *  (L, N) pairs are (1024, 160), (2048, 224), (2048, 256), and (3072, 256).
+   *
+   * (See http://csrc.nist.gov/groups/STM/cavp/documents/dss2/dsa2vs.pdf)
+   *
+   * Due to a bug in OpenSSL's error checking and memory allocation using an
+   * unacceptable combination will cause OpenSSL to overwrite random
+   * unintialized pointers and it will mostly likely segfault instead
+   * of producing a friendly error. As such we should do all the requisite
+   * checks here instead!
+   *
+   * For the actual bug, see handling of 'BIGNUM m' in dsa_do_sign():
+   * https://github.com/openssl/openssl/blob/OpenSSL-fips-2_0-dev/crypto/dsa/dsa_ossl.c
+   *
+   * This bug has been previously reported here:
+   * https://www.mail-archive.com/openssl-dev@openssl.org/msg36826.html
+   *
+   */
+
+  /* Validate DSA2 parameters from FIPS 186-4 */
+  if (EVP_PKEY_DSA == pkey->type) {
+    size_t L = BN_num_bits(pkey->pkey.dsa->p);
+    size_t N = BN_num_bits(pkey->pkey.dsa->q);
+    bool result = false;
+
+    if (L == 1024 && N == 160)
+      result = true;
+    else if (L == 2048 && N == 224)
+      result = true;
+    else if (L == 2048 && N == 256)
+      result = true;
+    else if (L == 3072 && N == 256)
+      result = true;
+
+    if(!result) {
+      fatal = true;
+      goto exit;
+    }
+  }
+#endif  // OPENSSL_FIPS
+
 
   if (EVP_SignFinal(&mdctx_, *sig, sig_len, pkey))
     fatal = false;
@@ -4050,7 +4109,8 @@ void DiffieHellman::Initialize(Environment* env, Local<Object> target) {
 
 bool DiffieHellman::Init(int primeLength, int g) {
   dh = DH_new();
-  DH_generate_parameters_ex(dh, primeLength, g, 0);
+  if (!DH_generate_parameters_ex(dh, primeLength, g, 0))
+    return false;
   bool result = VerifyContext();
   if (!result)
     return false;
@@ -4143,7 +4203,7 @@ void DiffieHellman::New(const FunctionCallbackInfo<Value>& args) {
   }
 
   if (!initialized) {
-    return env->ThrowError("Initialization failed");
+    return ThrowCryptoError(env, ERR_get_error(), "Initialization failed");
   }
 }
 
@@ -4154,11 +4214,11 @@ void DiffieHellman::GenerateKeys(const FunctionCallbackInfo<Value>& args) {
   DiffieHellman* diffieHellman = Unwrap<DiffieHellman>(args.Holder());
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   if (!DH_generate_key(diffieHellman->dh)) {
-    return env->ThrowError("Key generation failed");
+    return ThrowCryptoError(env, ERR_get_error(), "Key generation failed");
   }
 
   int dataSize = BN_num_bytes(diffieHellman->dh->pub_key);
@@ -4177,7 +4237,7 @@ void DiffieHellman::GetPrime(const FunctionCallbackInfo<Value>& args) {
   DiffieHellman* diffieHellman = Unwrap<DiffieHellman>(args.Holder());
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   int dataSize = BN_num_bytes(diffieHellman->dh->p);
@@ -4195,7 +4255,7 @@ void DiffieHellman::GetGenerator(const FunctionCallbackInfo<Value>& args) {
   DiffieHellman* diffieHellman = Unwrap<DiffieHellman>(args.Holder());
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   int dataSize = BN_num_bytes(diffieHellman->dh->g);
@@ -4213,7 +4273,7 @@ void DiffieHellman::GetPublicKey(const FunctionCallbackInfo<Value>& args) {
   DiffieHellman* diffieHellman = Unwrap<DiffieHellman>(args.Holder());
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   if (diffieHellman->dh->pub_key == nullptr) {
@@ -4236,7 +4296,7 @@ void DiffieHellman::GetPrivateKey(const FunctionCallbackInfo<Value>& args) {
   DiffieHellman* diffieHellman = Unwrap<DiffieHellman>(args.Holder());
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   if (diffieHellman->dh->priv_key == nullptr) {
@@ -4259,7 +4319,7 @@ void DiffieHellman::ComputeSecret(const FunctionCallbackInfo<Value>& args) {
   DiffieHellman* diffieHellman = Unwrap<DiffieHellman>(args.Holder());
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   ClearErrorOnReturn clear_error_on_return;
@@ -4292,7 +4352,7 @@ void DiffieHellman::ComputeSecret(const FunctionCallbackInfo<Value>& args) {
     delete[] data;
 
     if (!checked) {
-      return env->ThrowError("Invalid key");
+      return ThrowCryptoError(env, ERR_get_error(), "Invalid Key");
     } else if (checkResult) {
       if (checkResult & DH_CHECK_PUBKEY_TOO_SMALL) {
         return env->ThrowError("Supplied key is too small");
@@ -4329,7 +4389,7 @@ void DiffieHellman::SetPublicKey(const FunctionCallbackInfo<Value>& args) {
   Environment* env = diffieHellman->env();
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   if (args.Length() == 0) {
@@ -4348,7 +4408,7 @@ void DiffieHellman::SetPrivateKey(const FunctionCallbackInfo<Value>& args) {
   Environment* env = diffieHellman->env();
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   if (args.Length() == 0) {
@@ -4370,7 +4430,7 @@ void DiffieHellman::VerifyErrorGetter(Local<String> property,
   DiffieHellman* diffieHellman = Unwrap<DiffieHellman>(args.Holder());
 
   if (!diffieHellman->initialised_)
-    return diffieHellman->env()->ThrowError("Not initialized");
+    return ThrowCryptoError(diffieHellman->env(), ERR_get_error(), "Not initialized");
 
   args.GetReturnValue().Set(diffieHellman->verifyError_);
 }
@@ -5125,6 +5185,14 @@ void GetCurves(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(arr);
 }
 
+void hasFipsCryptoProvider(const FunctionCallbackInfo<Value>& args) {
+#ifdef OPENSSL_FIPS
+  args.GetReturnValue().Set(true);
+#else
+  args.GetReturnValue().Set(false);
+#endif // OPENSSL_FIPS
+}
+
 
 void Certificate::Initialize(Environment* env, Local<Object> target) {
   HandleScope scope(env->isolate());
@@ -5420,6 +5488,7 @@ void InitCrypto(Local<Object> target,
   env->SetMethod(target, "getCiphers", GetCiphers);
   env->SetMethod(target, "getHashes", GetHashes);
   env->SetMethod(target, "getCurves", GetCurves);
+  env->SetMethod(target, "hasFipsCryptoProvider", hasFipsCryptoProvider);
   env->SetMethod(target, "publicEncrypt",
                  PublicKeyCipher::Cipher<PublicKeyCipher::kPublic,
                                          EVP_PKEY_encrypt_init,
