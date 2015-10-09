@@ -102,20 +102,24 @@ for (var i in TEST_CASES) {
     }
   })();
 
-  // (function() {
-  //   if (!test.password) return;
-  //   var encrypt = crypto.createCipher(test.algo, test.password);
-  //   if (test.aad)
-  //     encrypt.setAAD(new Buffer(test.aad, 'hex'));
-  //   var hex = encrypt.update(test.plain, 'ascii', 'hex');
-  //   hex += encrypt.final('hex');
-  //   var auth_tag = encrypt.getAuthTag();
-  //   // only test basic encryption run if output is marked as tampered.
-  //   if (!test.tampered) {
-  //     assert.equal(hex.toUpperCase(), test.ct);
-  //     assert.equal(auth_tag.toString('hex').toUpperCase(), test.tag);
-  //   }
-  // })();
+  // createCipher disabled for fips
+
+  if (!common.hasFipsCrypto) {
+  (function() {
+    if (!test.password) return;
+    var encrypt = crypto.createCipher(test.algo, test.password);
+    if (test.aad)
+      encrypt.setAAD(new Buffer(test.aad, 'hex'));
+    var hex = encrypt.update(test.plain, 'ascii', 'hex');
+    hex += encrypt.final('hex');
+    var auth_tag = encrypt.getAuthTag();
+    // only test basic encryption run if output is marked as tampered.
+    if (!test.tampered) {
+      assert.equal(hex.toUpperCase(), test.ct);
+      assert.equal(auth_tag.toString('hex').toUpperCase(), test.tag);
+    }
+  })();
+  }
 
   (function() {
     if (!test.password) return;

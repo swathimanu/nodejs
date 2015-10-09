@@ -415,47 +415,50 @@ var verified = crypto.createVerify('RSA-SHA1')
                      .verify(certPem, s3);
 assert.strictEqual(verified, true, 'sign and verify (buffer)');
 
+//createCipher disabled for Fips
 
-function testCipher1(key) {
-  // Test encryption and decryption
-  var plaintext = 'Keep this a secret? No! Tell everyone about node.js!';
-  // var cipher = crypto.createCipher('aes192', key);
+if (!common.hasFipsCrypto) {
+  
+  function testCipher1(key) {
+    // Test encryption and decryption
+    var plaintext = 'Keep this a secret? No! Tell everyone about node.js!';
+    var cipher = crypto.createCipher('aes192', key);
 
-  // encrypt plaintext which is in utf8 format
-  // to a ciphertext which will be in hex
-  var ciph = cipher.update(plaintext, 'utf8', 'hex');
-  // Only use binary or hex, not base64.
-  ciph += cipher.final('hex');
+    // encrypt plaintext which is in utf8 format
+    // to a ciphertext which will be in hex
+    var ciph = cipher.update(plaintext, 'utf8', 'hex');
+    // Only use binary or hex, not base64.
+    ciph += cipher.final('hex');
 
-  var decipher = crypto.createDecipher('aes192', key);
-  var txt = decipher.update(ciph, 'hex', 'utf8');
-  txt += decipher.final('utf8');
+    var decipher = crypto.createDecipher('aes192', key);
+    var txt = decipher.update(ciph, 'hex', 'utf8');
+    txt += decipher.final('utf8');
 
-  assert.equal(txt, plaintext, 'encryption and decryption');
+    assert.equal(txt, plaintext, 'encryption and decryption');
+  }
+
+
+  function testCipher2(key) {
+    // encryption and decryption with Base64
+    // reported in https://github.com/joyent/node/issues/738
+    var plaintext =
+        '32|RmVZZkFUVmpRRkp0TmJaUm56ZU9qcnJkaXNNWVNpTTU*|iXmckfRWZBGWWELw' +
+        'eCBsThSsfUHLeRe0KCsK8ooHgxie0zOINpXxfZi/oNG7uq9JWFVCk70gfzQH8ZUJ' +
+        'jAfaFg**';
+    var cipher = crypto.createCipher('aes256', key);
+
+    // encrypt plaintext which is in utf8 format
+    // to a ciphertext which will be in Base64
+    var ciph = cipher.update(plaintext, 'utf8', 'base64');
+    ciph += cipher.final('base64');
+
+    var decipher = crypto.createDecipher('aes256', key);
+    var txt = decipher.update(ciph, 'base64', 'utf8');
+    txt += decipher.final('utf8');
+
+    assert.equal(txt, plaintext, 'encryption and decryption with Base64');
+  }
 }
-
-
-function testCipher2(key) {
-  // encryption and decryption with Base64
-  // reported in https://github.com/joyent/node/issues/738
-  var plaintext =
-      '32|RmVZZkFUVmpRRkp0TmJaUm56ZU9qcnJkaXNNWVNpTTU*|iXmckfRWZBGWWELw' +
-      'eCBsThSsfUHLeRe0KCsK8ooHgxie0zOINpXxfZi/oNG7uq9JWFVCk70gfzQH8ZUJ' +
-      'jAfaFg**';
-  // var cipher = crypto.createCipher('aes256', key);
-
-  // encrypt plaintext which is in utf8 format
-  // to a ciphertext which will be in Base64
-  var ciph = cipher.update(plaintext, 'utf8', 'base64');
-  ciph += cipher.final('base64');
-
-  var decipher = crypto.createDecipher('aes256', key);
-  var txt = decipher.update(ciph, 'base64', 'utf8');
-  txt += decipher.final('utf8');
-
-  assert.equal(txt, plaintext, 'encryption and decryption with Base64');
-}
-
 
 function testCipher3(key, iv) {
   // Test encyrption and decryption with explicit key and iv
